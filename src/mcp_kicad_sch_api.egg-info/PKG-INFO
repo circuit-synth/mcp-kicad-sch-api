@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: mcp-kicad-sch-api
-Version: 0.1.3
+Version: 0.1.4
 Summary: Model Context Protocol server for KiCAD schematic manipulation
 Author-email: Circuit-Synth <shane@circuit-synth.com>
 Maintainer-email: Circuit-Synth <shane@circuit-synth.com>

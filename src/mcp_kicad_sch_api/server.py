@@ -457,11 +457,13 @@ async def main():
     # Start the MCP server
     logger.info("MCP server ready, waiting for connections...")
     
-    async with stdio_server() as streams:
+    options = server.create_initialization_options()
+    async with stdio_server() as (read_stream, write_stream):
         await server.run(
-            streams[0],  # stdin
-            streams[1],  # stdout  
-            None         # initialization_options
+            read_stream,
+            write_stream,
+            options,
+            raise_exceptions=True
         )
 
 
