@@ -1,0 +1,2 @@
+[console_scripts]
+mcp-kicad-sch-api = mcp_kicad_sch_api:main
