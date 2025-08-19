@@ -40,9 +40,43 @@ Add to your `claude_desktop_config.json`:
 ```
 
 #### Claude Code
+
+**Option 1: Automatic (Recommended)**
 ```bash
-claude mcp add kicad-sch-api --scope user -- python -m mcp_kicad_sch_api
+# Add MCP server automatically
+claude mcp add mcp-kicad-sch-api /path/to/your/venv/bin/mcp-kicad-sch-api
+
+# Example with specific venv path:
+claude mcp add mcp-kicad-sch-api /Users/username/myproject/venv/bin/mcp-kicad-sch-api
 ```
+
+**Option 2: Manual Configuration**
+If the automatic method doesn't work, manually edit your Claude Code config file:
+
+```bash
+# Find your config file location
+code ~/.claude.json
+```
+
+Add the MCP server configuration:
+```json
+{
+  "mcpServers": {
+    "mcp-kicad-sch-api": {
+      "command": "/path/to/your/venv/bin/mcp-kicad-sch-api"
+    }
+  }
+}
+```
+
+**Finding Your Installation Path:**
+```bash
+# After installing in your venv, find the executable path:
+which mcp-kicad-sch-api
+# Example output: /Users/username/myproject/venv/bin/mcp-kicad-sch-api
+```
+
+**Restart Claude Code** after configuration to load the MCP server.
 
 #### Other MCP Clients
 The server supports standard MCP stdio transport and should work with any MCP-compatible client.
