@@ -140,18 +140,16 @@ async def main():
         ]
     
     @server.call_tool()
-    async def create_schematic(arguments: dict) -> List[TextContent]:
+    async def create_schematic(name: str = "untitled") -> List[TextContent]:
         """Create a new KiCAD schematic.
         
         Args:
-            arguments: Dictionary containing the name parameter
+            name: Name for the schematic
             
         Returns:
             Status message about schematic creation
         """
         global current_schematic
-        
-        name = arguments.get("name", "untitled")
         
         try:
             logger.info(f"Creating new schematic: {name}")
@@ -169,23 +167,16 @@ async def main():
             )]
     
     @server.call_tool()
-    async def load_schematic(arguments: dict) -> List[TextContent]:
+    async def load_schematic(file_path: str) -> List[TextContent]:
         """Load an existing KiCAD schematic file.
         
         Args:
-            arguments: Dictionary containing the file_path parameter
+            file_path: Path to the .kicad_sch file
             
         Returns:
             Status message about schematic loading
         """
         global current_schematic
-        
-        file_path = arguments.get("file_path")
-        if not file_path:
-            return [TextContent(
-                type="text",
-                text="❌ file_path parameter is required"
-            )]
         
         try:
             logger.info(f"Loading schematic: {file_path}")
@@ -203,16 +194,15 @@ async def main():
             )]
     
     @server.call_tool()
-    async def save_schematic(arguments: dict) -> List[TextContent]:
+    async def save_schematic(file_path: Optional[str] = None) -> List[TextContent]:
         """Save the current schematic to a file.
         
         Args:
-            arguments: Dictionary containing optional file_path parameter
+            file_path: Optional path to save to (uses current if not provided)
             
         Returns:
             Status message about schematic saving
         """
-        file_path = arguments.get("file_path")
         if current_schematic is None:
             return [TextContent(
                 type="text",
@@ -242,26 +232,25 @@ async def main():
             )]
     
     @server.call_tool()
-    async def add_component(arguments: dict) -> List[TextContent]:
+    async def add_component(
+        lib_id: str,
+        reference: str,
+        value: str, 
+        position: List[float],
+        properties: str = ""
+    ) -> List[TextContent]:
         """Add a component to the current schematic.
         
         Args:
-            arguments: Dictionary containing lib_id, reference, value, position, properties
+            lib_id: Library ID (e.g., "Device:R" for resistor)
+            reference: Component reference (e.g., "R1")
+            value: Component value (e.g., "10k")
+            position: [x, y] position coordinates
+            properties: Additional properties as key=value pairs
             
         Returns:
             Status message about component addition
         """
-        lib_id = arguments.get("lib_id")
-        reference = arguments.get("reference")
-        value = arguments.get("value")
-        position = arguments.get("position")
-        properties = arguments.get("properties", "")
-        
-        if not all([lib_id, reference, value, position]):
-            return [TextContent(
-                type="text",
-                text="❌ lib_id, reference, value, and position parameters are required"
-            )]
         if current_schematic is None:
             return [TextContent(
                 type="text",
@@ -303,24 +292,21 @@ async def main():
             )]
     
     @server.call_tool()
-    async def search_components(arguments: dict) -> List[TextContent]:
+    async def search_components(
+        query: str,
+        library: Optional[str] = None,
+        limit: int = 20
+    ) -> List[TextContent]:
         """Search for components in KiCAD symbol libraries.
         
         Args:
-            arguments: Dictionary containing query, library, limit parameters
+            query: Search term (e.g., "resistor", "op amp", "555")
+            library: Optional library to search in
+            limit: Maximum number of results
             
         Returns:
             List of matching components
         """
-        query = arguments.get("query")
-        if not query:
-            return [TextContent(
-                type="text",
-                text="❌ query parameter is required"
-            )]
-            
-        library = arguments.get("library")
-        limit = arguments.get("limit", 20)
         try:
             logger.info(f"Searching components: {query}")
             
@@ -352,23 +338,19 @@ async def main():
             )]
     
     @server.call_tool()
-    async def add_wire(arguments: dict) -> List[TextContent]:
+    async def add_wire(
+        start_pos: List[float],
+        end_pos: List[float]
+    ) -> List[TextContent]:
         """Add a wire connection between two points.
         
         Args:
-            arguments: Dictionary containing start_pos and end_pos parameters
+            start_pos: [x, y] start coordinates
+            end_pos: [x, y] end coordinates
             
         Returns:
             Status message about wire addition
         """
-        start_pos = arguments.get("start_pos")
-        end_pos = arguments.get("end_pos")
-        
-        if not start_pos or not end_pos:
-            return [TextContent(
-                type="text",
-                text="❌ start_pos and end_pos parameters are required"
-            )]
         if current_schematic is None:
             return [TextContent(
                 type="text",
@@ -401,12 +383,9 @@ async def main():
             )]
     
     @server.call_tool()
-    async def list_components(arguments: dict) -> List[TextContent]:
+    async def list_components() -> List[TextContent]:
         """List all components in the current schematic.
         
-        Args:
-            arguments: Dictionary (no parameters needed)
-            
         Returns:
             List of components with details
         """
@@ -442,12 +421,9 @@ async def main():
             )]
     
     @server.call_tool()
-    async def get_schematic_info(arguments: dict) -> List[TextContent]:
+    async def get_schematic_info() -> List[TextContent]:
         """Get information about the current schematic.
         
-        Args:
-            arguments: Dictionary (no parameters needed)
-            
         Returns:
             Schematic information and statistics
         """
