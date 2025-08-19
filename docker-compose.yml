@@ -1,0 +1,16 @@
+version: '3.8'
+
+services:
+  mcp-kicad-sch-api:
+    build: .
+    container_name: mcp-kicad-sch-api
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - MCP_TRANSPORT=stdio
+    stdin_open: true
+    tty: true
+    volumes:
+      - ./schematics:/app/schematics
+    command: ["python", "-m", "mcp_kicad_sch_api"]

@@ -38,6 +38,107 @@ async def main():
     
     server = Server("mcp-kicad-sch-api")
     
+    @server.list_tools()
+    async def list_tools() -> List[Tool]:
+        """List available KiCAD schematic tools."""
+        return [
+            Tool(
+                name="create_schematic",
+                description="Create a new KiCAD schematic",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string", "description": "Name for the schematic"}
+                    },
+                    "additionalProperties": False
+                }
+            ),
+            Tool(
+                name="load_schematic", 
+                description="Load an existing KiCAD schematic file",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "file_path": {"type": "string", "description": "Path to the .kicad_sch file"}
+                    },
+                    "required": ["file_path"],
+                    "additionalProperties": False
+                }
+            ),
+            Tool(
+                name="save_schematic",
+                description="Save the current schematic to a file", 
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "file_path": {"type": "string", "description": "Optional path to save to"}
+                    },
+                    "additionalProperties": False
+                }
+            ),
+            Tool(
+                name="add_component",
+                description="Add a component to the current schematic",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "lib_id": {"type": "string", "description": "Library ID (e.g., Device:R)"},
+                        "reference": {"type": "string", "description": "Component reference (e.g., R1)"},
+                        "value": {"type": "string", "description": "Component value (e.g., 10k)"},
+                        "position": {"type": "array", "items": {"type": "number"}, "description": "[x, y] coordinates"},
+                        "properties": {"type": "string", "description": "Additional properties as key=value pairs"}
+                    },
+                    "required": ["lib_id", "reference", "value", "position"],
+                    "additionalProperties": False
+                }
+            ),
+            Tool(
+                name="search_components",
+                description="Search for components in KiCAD symbol libraries",
+                inputSchema={
+                    "type": "object", 
+                    "properties": {
+                        "query": {"type": "string", "description": "Search term (e.g., resistor, op amp, 555)"},
+                        "library": {"type": "string", "description": "Optional library to search in"},
+                        "limit": {"type": "integer", "description": "Maximum number of results"}
+                    },
+                    "required": ["query"],
+                    "additionalProperties": False
+                }
+            ),
+            Tool(
+                name="add_wire",
+                description="Add a wire connection between two points",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "start_pos": {"type": "array", "items": {"type": "number"}, "description": "[x, y] start coordinates"},
+                        "end_pos": {"type": "array", "items": {"type": "number"}, "description": "[x, y] end coordinates"}
+                    },
+                    "required": ["start_pos", "end_pos"],
+                    "additionalProperties": False
+                }
+            ),
+            Tool(
+                name="list_components",
+                description="List all components in the current schematic",
+                inputSchema={
+                    "type": "object",
+                    "properties": {},
+                    "additionalProperties": False
+                }
+            ),
+            Tool(
+                name="get_schematic_info", 
+                description="Get information about the current schematic",
+                inputSchema={
+                    "type": "object",
+                    "properties": {},
+                    "additionalProperties": False
+                }
+            )
+        ]
+    
     @server.call_tool()
     async def create_schematic(name: str = "untitled") -> List[TextContent]:
         """Create a new KiCAD schematic.
@@ -359,7 +460,8 @@ async def main():
     async with stdio_server() as streams:
         await server.run(
             streams[0],  # stdin
-            streams[1]   # stdout  
+            streams[1],  # stdout  
+            None         # initialization_options
         )
 
 

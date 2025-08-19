@@ -1,8 +1,6 @@
+click>=8.1.7
 mcp>=1.0.0
 kicad-sch-api>=0.1.7
-
-[:python_version < "3.11"]
-asyncio-mqtt>=0.16.0
 
 [dev]
 pytest>=7.0.0
