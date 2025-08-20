@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mcp-kicad-sch-api"
-version = "0.2.1"
+version = "0.3.0"
 description = "Model Context Protocol server for KiCAD schematic manipulation"
 readme = "README.md"
 license = "MIT"

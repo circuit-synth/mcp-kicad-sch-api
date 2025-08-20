@@ -277,6 +277,144 @@ async def main():
                     "required": ["label_uuid"],
                     "additionalProperties": False
                 }
+            ),
+            # Validation and utility tools
+            Tool(
+                name="validate_schematic",
+                description="Validate schematic for errors and issues",
+                inputSchema={
+                    "type": "object",
+                    "properties": {},
+                    "additionalProperties": False
+                }
+            ),
+            Tool(
+                name="clone_schematic",
+                description="Create a copy of the current schematic",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "new_name": {"type": "string", "description": "Name for cloned schematic (optional)"}
+                    },
+                    "additionalProperties": False
+                }
+            ),
+            Tool(
+                name="backup_schematic",
+                description="Create backup of current schematic file",
+                inputSchema={
+                    "type": "object", 
+                    "properties": {
+                        "suffix": {"type": "string", "description": "Backup file suffix (default: .backup)"}
+                    },
+                    "additionalProperties": False
+                }
+            ),
+            # Text elements
+            Tool(
+                name="add_text",
+                description="Add text element to schematic",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "text": {"type": "string", "description": "Text content"},
+                        "position": {"type": "array", "items": {"type": "number"}, "description": "[x, y] coordinates"},
+                        "rotation": {"type": "number", "description": "Text rotation in degrees"},
+                        "size": {"type": "number", "description": "Font size"}
+                    },
+                    "required": ["text", "position"],
+                    "additionalProperties": False
+                }
+            ),
+            Tool(
+                name="add_text_box",
+                description="Add text box element to schematic",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "text": {"type": "string", "description": "Text content"},
+                        "position": {"type": "array", "items": {"type": "number"}, "description": "[x, y] top-left coordinates"},
+                        "size": {"type": "array", "items": {"type": "number"}, "description": "[width, height] dimensions"},
+                        "rotation": {"type": "number", "description": "Text rotation in degrees"},
+                        "font_size": {"type": "number", "description": "Font size"}
+                    },
+                    "required": ["text", "position", "size"],
+                    "additionalProperties": False
+                }
+            ),
+            # Hierarchical sheet tools
+            Tool(
+                name="add_sheet",
+                description="Add hierarchical sheet to schematic",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string", "description": "Sheet name"},
+                        "filename": {"type": "string", "description": "Sheet filename (.kicad_sch)"},
+                        "position": {"type": "array", "items": {"type": "number"}, "description": "[x, y] coordinates"},
+                        "size": {"type": "array", "items": {"type": "number"}, "description": "[width, height] dimensions"}
+                    },
+                    "required": ["name", "filename", "position", "size"],
+                    "additionalProperties": False
+                }
+            ),
+            Tool(
+                name="add_sheet_pin",
+                description="Add pin to hierarchical sheet",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "sheet_uuid": {"type": "string", "description": "UUID of sheet to add pin to"},
+                        "name": {"type": "string", "description": "Pin name"},
+                        "pin_type": {"type": "string", "description": "Pin type (input, output, bidirectional)"},
+                        "position": {"type": "array", "items": {"type": "number"}, "description": "[x, y] coordinates relative to sheet"}
+                    },
+                    "required": ["sheet_uuid", "name", "pin_type", "position"],
+                    "additionalProperties": False
+                }
+            ),
+            # Component filtering and bulk operations
+            Tool(
+                name="filter_components",
+                description="Filter components by criteria",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "lib_id": {"type": "string", "description": "Filter by library ID (e.g., Device:R)"},
+                        "value": {"type": "string", "description": "Filter by component value"},
+                        "reference": {"type": "string", "description": "Filter by reference pattern"},
+                        "footprint": {"type": "string", "description": "Filter by footprint"}
+                    },
+                    "additionalProperties": False
+                }
+            ),
+            Tool(
+                name="components_in_area",
+                description="Find components in rectangular area",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "x1": {"type": "number", "description": "Left X coordinate"},
+                        "y1": {"type": "number", "description": "Top Y coordinate"},
+                        "x2": {"type": "number", "description": "Right X coordinate"},
+                        "y2": {"type": "number", "description": "Bottom Y coordinate"}
+                    },
+                    "required": ["x1", "y1", "x2", "y2"],
+                    "additionalProperties": False
+                }
+            ),
+            Tool(
+                name="bulk_update_components",
+                description="Update multiple components at once",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "criteria": {"type": "object", "description": "Filter criteria (lib_id, value, etc.)"},
+                        "updates": {"type": "object", "description": "Updates to apply (value, footprint, properties)"}
+                    },
+                    "required": ["criteria", "updates"],
+                    "additionalProperties": False
+                }
             )
         ]
     
@@ -868,6 +1006,358 @@ async def main():
                     return [TextContent(
                         type="text",
                         text=f"❌ Error removing label: {str(e)}"
+                    )]
+                    
+            # Validation and utility tools
+            elif name == "validate_schematic":
+                if current_schematic is None:
+                    return [TextContent(
+                        type="text",
+                        text="❌ No schematic loaded. Create or load a schematic first."
+                    )]
+                
+                try:
+                    issues = current_schematic.validate()
+                    
+                    if not issues:
+                        return [TextContent(
+                            type="text",
+                            text="✅ Schematic validation passed - no issues found"
+                        )]
+                    
+                    errors = [issue for issue in issues if issue.level.value in ("error", "critical")]
+                    warnings = [issue for issue in issues if issue.level.value == "warning"]
+                    
+                    result_text = f"📋 Validation Results:\n\n"
+                    result_text += f"• Total issues: {len(issues)}\n"
+                    result_text += f"• Errors: {len(errors)}\n"
+                    result_text += f"• Warnings: {len(warnings)}\n\n"
+                    
+                    if errors:
+                        result_text += "❌ Critical Errors:\n"
+                        for error in errors[:5]:  # Show first 5
+                            result_text += f"  - {error}\n"
+                    
+                    if warnings:
+                        result_text += "\n⚠️ Warnings:\n"
+                        for warning in warnings[:5]:  # Show first 5
+                            result_text += f"  - {warning}\n"
+                    
+                    return [TextContent(type="text", text=result_text)]
+                    
+                except Exception as e:
+                    return [TextContent(
+                        type="text",
+                        text=f"❌ Error validating schematic: {str(e)}"
+                    )]
+                    
+            elif name == "clone_schematic":
+                if current_schematic is None:
+                    return [TextContent(
+                        type="text",
+                        text="❌ No schematic loaded. Create or load a schematic first."
+                    )]
+                
+                new_name = arguments.get("new_name")
+                
+                try:
+                    global current_schematic
+                    cloned = current_schematic.clone(new_name)
+                    current_schematic = cloned  # Switch to cloned schematic
+                    
+                    return [TextContent(
+                        type="text",
+                        text=f"✅ Created schematic clone: '{new_name or 'Clone'}' with {len(list(cloned.components))} components"
+                    )]
+                except Exception as e:
+                    return [TextContent(
+                        type="text",
+                        text=f"❌ Error cloning schematic: {str(e)}"
+                    )]
+                    
+            elif name == "backup_schematic":
+                if current_schematic is None:
+                    return [TextContent(
+                        type="text",
+                        text="❌ No schematic loaded. Create or load a schematic first."
+                    )]
+                
+                suffix = arguments.get("suffix", ".backup")
+                
+                try:
+                    backup_path = current_schematic.backup(suffix)
+                    return [TextContent(
+                        type="text",
+                        text=f"✅ Created backup: {backup_path}"
+                    )]
+                except Exception as e:
+                    return [TextContent(
+                        type="text",
+                        text=f"❌ Error creating backup: {str(e)}"
+                    )]
+                    
+            # Text elements
+            elif name == "add_text":
+                if current_schematic is None:
+                    return [TextContent(
+                        type="text",
+                        text="❌ No schematic loaded. Create or load a schematic first."
+                    )]
+                
+                text = arguments.get("text")
+                position = arguments.get("position")
+                rotation = arguments.get("rotation", 0.0)
+                size = arguments.get("size", 1.27)
+                
+                if not text or not position:
+                    return [TextContent(
+                        type="text",
+                        text="❌ text and position parameters are required"
+                    )]
+                
+                if len(position) != 2:
+                    return [TextContent(
+                        type="text",
+                        text="❌ Position must be [x, y] coordinates"
+                    )]
+                
+                try:
+                    text_uuid = current_schematic.add_text(text, tuple(position), rotation, size)
+                    return [TextContent(
+                        type="text",
+                        text=f"✅ Added text '{text}' at {position} (UUID: {text_uuid})"
+                    )]
+                except Exception as e:
+                    return [TextContent(
+                        type="text",
+                        text=f"❌ Error adding text: {str(e)}"
+                    )]
+                    
+            elif name == "add_text_box":
+                if current_schematic is None:
+                    return [TextContent(
+                        type="text",
+                        text="❌ No schematic loaded. Create or load a schematic first."
+                    )]
+                
+                text = arguments.get("text")
+                position = arguments.get("position")
+                size = arguments.get("size")
+                rotation = arguments.get("rotation", 0.0)
+                font_size = arguments.get("font_size", 1.27)
+                
+                if not all([text, position, size]):
+                    return [TextContent(
+                        type="text",
+                        text="❌ text, position, and size parameters are required"
+                    )]
+                
+                if len(position) != 2 or len(size) != 2:
+                    return [TextContent(
+                        type="text",
+                        text="❌ Position and size must be [x, y] and [width, height] arrays"
+                    )]
+                
+                try:
+                    textbox_uuid = current_schematic.add_text_box(
+                        text, tuple(position), tuple(size), rotation, font_size
+                    )
+                    return [TextContent(
+                        type="text",
+                        text=f"✅ Added text box '{text}' at {position} size {size} (UUID: {textbox_uuid})"
+                    )]
+                except Exception as e:
+                    return [TextContent(
+                        type="text",
+                        text=f"❌ Error adding text box: {str(e)}"
+                    )]
+                    
+            # Hierarchical sheet tools
+            elif name == "add_sheet":
+                if current_schematic is None:
+                    return [TextContent(
+                        type="text",
+                        text="❌ No schematic loaded. Create or load a schematic first."
+                    )]
+                
+                name_arg = arguments.get("name")
+                filename = arguments.get("filename")
+                position = arguments.get("position")
+                size = arguments.get("size")
+                
+                if not all([name_arg, filename, position, size]):
+                    return [TextContent(
+                        type="text",
+                        text="❌ name, filename, position, and size parameters are required"
+                    )]
+                
+                if len(position) != 2 or len(size) != 2:
+                    return [TextContent(
+                        type="text",
+                        text="❌ Position and size must be [x, y] and [width, height] arrays"
+                    )]
+                
+                try:
+                    sheet_uuid = current_schematic.add_sheet(
+                        name_arg, filename, tuple(position), tuple(size)
+                    )
+                    return [TextContent(
+                        type="text",
+                        text=f"✅ Added hierarchical sheet '{name_arg}' ({filename}) at {position} (UUID: {sheet_uuid})"
+                    )]
+                except Exception as e:
+                    return [TextContent(
+                        type="text",
+                        text=f"❌ Error adding sheet: {str(e)}"
+                    )]
+                    
+            elif name == "add_sheet_pin":
+                if current_schematic is None:
+                    return [TextContent(
+                        type="text",
+                        text="❌ No schematic loaded. Create or load a schematic first."
+                    )]
+                
+                sheet_uuid = arguments.get("sheet_uuid")
+                name_arg = arguments.get("name")
+                pin_type = arguments.get("pin_type")
+                position = arguments.get("position")
+                
+                if not all([sheet_uuid, name_arg, pin_type, position]):
+                    return [TextContent(
+                        type="text",
+                        text="❌ sheet_uuid, name, pin_type, and position parameters are required"
+                    )]
+                
+                if len(position) != 2:
+                    return [TextContent(
+                        type="text",
+                        text="❌ Position must be [x, y] coordinates"
+                    )]
+                
+                try:
+                    pin_uuid = current_schematic.add_sheet_pin(
+                        sheet_uuid, name_arg, pin_type, tuple(position)
+                    )
+                    return [TextContent(
+                        type="text",
+                        text=f"✅ Added sheet pin '{name_arg}' ({pin_type}) to sheet {sheet_uuid} (UUID: {pin_uuid})"
+                    )]
+                except Exception as e:
+                    return [TextContent(
+                        type="text",
+                        text=f"❌ Error adding sheet pin: {str(e)}"
+                    )]
+                    
+            # Component filtering and bulk operations
+            elif name == "filter_components":
+                if current_schematic is None:
+                    return [TextContent(
+                        type="text",
+                        text="❌ No schematic loaded. Create or load a schematic first."
+                    )]
+                
+                # Build filter criteria from arguments
+                criteria = {}
+                for key in ["lib_id", "value", "reference", "footprint"]:
+                    if arguments.get(key):
+                        criteria[key] = arguments[key]
+                
+                if not criteria:
+                    return [TextContent(
+                        type="text",
+                        text="❌ At least one filter criteria required (lib_id, value, reference, footprint)"
+                    )]
+                
+                try:
+                    filtered_components = current_schematic.components.filter(**criteria)
+                    
+                    if filtered_components:
+                        result_text = f"🔍 Found {len(filtered_components)} components matching criteria:\n\n"
+                        for comp in filtered_components[:10]:  # Show first 10
+                            result_text += f"• {comp.reference} ({comp.lib_id}) = {comp.value}\n"
+                        
+                        if len(filtered_components) > 10:
+                            result_text += f"\n... and {len(filtered_components) - 10} more"
+                            
+                        return [TextContent(type="text", text=result_text)]
+                    else:
+                        return [TextContent(
+                            type="text",
+                            text="❌ No components found matching criteria"
+                        )]
+                except Exception as e:
+                    return [TextContent(
+                        type="text",
+                        text=f"❌ Error filtering components: {str(e)}"
+                    )]
+                    
+            elif name == "components_in_area":
+                if current_schematic is None:
+                    return [TextContent(
+                        type="text",
+                        text="❌ No schematic loaded. Create or load a schematic first."
+                    )]
+                
+                x1 = arguments.get("x1")
+                y1 = arguments.get("y1")
+                x2 = arguments.get("x2")
+                y2 = arguments.get("y2")
+                
+                if not all([x1 is not None, y1 is not None, x2 is not None, y2 is not None]):
+                    return [TextContent(
+                        type="text",
+                        text="❌ x1, y1, x2, y2 coordinates are required"
+                    )]
+                
+                try:
+                    components_in_area = current_schematic.components.in_area(x1, y1, x2, y2)
+                    
+                    if components_in_area:
+                        result_text = f"📍 Found {len(components_in_area)} components in area ({x1}, {y1}) to ({x2}, {y2}):\n\n"
+                        for comp in components_in_area:
+                            result_text += f"• {comp.reference} at ({comp.position.x:.1f}, {comp.position.y:.1f})\n"
+                            
+                        return [TextContent(type="text", text=result_text)]
+                    else:
+                        return [TextContent(
+                            type="text",
+                            text=f"❌ No components found in area ({x1}, {y1}) to ({x2}, {y2})"
+                        )]
+                except Exception as e:
+                    return [TextContent(
+                        type="text",
+                        text=f"❌ Error finding components in area: {str(e)}"
+                    )]
+                    
+            elif name == "bulk_update_components":
+                if current_schematic is None:
+                    return [TextContent(
+                        type="text",
+                        text="❌ No schematic loaded. Create or load a schematic first."
+                    )]
+                
+                criteria = arguments.get("criteria")
+                updates = arguments.get("updates")
+                
+                if not criteria or not updates:
+                    return [TextContent(
+                        type="text",
+                        text="❌ criteria and updates parameters are required"
+                    )]
+                
+                try:
+                    updated_count = current_schematic.components.bulk_update(
+                        criteria=criteria, updates=updates
+                    )
+                    return [TextContent(
+                        type="text",
+                        text=f"✅ Bulk updated {updated_count} components"
+                    )]
+                except Exception as e:
+                    return [TextContent(
+                        type="text",
+                        text=f"❌ Error bulk updating components: {str(e)}"
                     )]
             
             else:
