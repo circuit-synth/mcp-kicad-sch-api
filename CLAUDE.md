@@ -2,6 +2,53 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## ⚠️ CRITICAL DEVELOPMENT RULES
+
+### 🚫 Git Commit Policy
+**NEVER commit changes unless explicitly told by the user.**
+- Always ask for permission before running `git commit`
+- Only commit when user specifically requests it
+- Exception: Only commit automatically when user says "commit this" or similar explicit instruction
+
+### 📦 Version Management Policy
+**Always increment PyPI version by patch (0.0.1) unless instructed otherwise.**
+- Default increment: `0.2.0` → `0.2.1` → `0.2.2`
+- Only use minor/major increments when user explicitly requests
+- Always update both `pyproject.toml` and `src/mcp_kicad_sch_api/__init__.py`
+
+### 📋 Feature Development Policy
+**Always create a PRD (Product Requirements Document) before implementing features.**
+- Write a detailed PRD markdown file in the project root
+- Include: Problem statement, proposed solution, technical approach, testing plan
+- **ASK USER FOR FEEDBACK** on the PRD before proceeding with implementation
+- Do not start coding until user approves the PRD
+
+#### PRD Template:
+```markdown
+# PRD: [Feature Name]
+
+## Problem Statement
+[What problem are we solving?]
+
+## Proposed Solution
+[High-level approach]
+
+## Technical Implementation
+- [Technical details]
+- [API changes]
+- [Testing approach]
+
+## Success Criteria
+[How do we know it works?]
+```
+
+### 🔄 Required Workflow
+1. **User requests feature** → Write PRD → **Ask for user approval**
+2. **User approves PRD** → Implement feature → Run tests
+3. **Implementation complete** → **Ask user if they want to commit**
+4. **User says commit** → Commit with appropriate message
+5. **User requests release** → Increment patch version → Publish to PyPI
+
 ## Project Overview
 
 mcp-kicad-sch-api is a **Model Context Protocol (MCP) server** that provides KiCAD schematic manipulation tools for AI agents. It acts as a bridge between AI systems and KiCAD schematic files, enabling automated circuit design and analysis.
@@ -57,8 +104,8 @@ python -m mcp_kicad_sch_api
 # Run MCP server with verbose logging
 python -m mcp_kicad_sch_api -vv
 
-# Test server connectivity
-echo '{"jsonrpc": "2.0", "method": "initialize", "id": 1}' | python -m mcp_kicad_sch_api
+# Test server starts without errors
+python -c "import sys; sys.path.insert(0, 'src'); from mcp_kicad_sch_api.server import main; print('✅ Server imports successfully')"
 ```
 
 ### Package Management
@@ -127,6 +174,15 @@ python -m mcp_kicad_sch_api
 
 ## Core Architecture Patterns
 
+### MCP Server Implementation Notes
+**This project uses the official MCP Python SDK 1.13.0 with low-level server API:**
+- Uses `mcp.server.Server` (not FastMCP) for full control
+- Single `@server.call_tool()` handler dispatches to individual tool logic
+- Tools defined via `@server.list_tools()` with JSON schemas
+- Our approach gives maximum control over MCP protocol implementation
+
+**Alternative**: FastMCP provides simpler `@mcp.tool()` decorators but we chose the low-level approach for flexibility.
+
 ### MCP Tool Pattern
 ```python
 @server.call_tool()
@@ -188,8 +244,22 @@ This project includes a `.claude/settings.json` file that configures Claude Code
 This server is designed for integration with MCP-compatible AI clients:
 
 ### Claude Code Integration
+
+**Method 1: Command Line (Recommended)**
+```bash
+# Add MCP server to Claude Code
+claude mcp add kicad-sch -- python -m mcp_kicad_sch_api
+
+# Add with verbose logging
+claude mcp add kicad-sch-verbose --env DEBUG=1 -- python -m mcp_kicad_sch_api -vv
+
+# Verify server is added
+claude mcp list
+```
+
+**Method 2: JSON Configuration**
 ```json
-// In Claude Code MCP settings
+// In Claude Code .mcp.json file
 {
   "mcpServers": {
     "kicad-sch": {
@@ -201,22 +271,16 @@ This server is designed for integration with MCP-compatible AI clients:
 }
 ```
 
-### Standard MCP Client Pattern
-```python
-import mcp
+### MCP Client Testing
+```bash
+# Test server integration with Claude Code
+# 1. Add server: claude mcp add kicad-sch -- python -m mcp_kicad_sch_api
+# 2. In Claude Code session, tools will be available automatically
+# 3. Test with: "Create a blank KiCAD schematic"
 
-# Connect to server
-client = mcp.Client()
-await client.connect_stdio("python", ["-m", "mcp_kicad_sch_api"])
-
-# Use tools
-result = await client.call_tool("create_schematic", {"name": "My Circuit"})
-result = await client.call_tool("add_component", {
-    "lib_id": "Device:R",
-    "reference": "R1", 
-    "value": "10k",
-    "position": [100, 100]
-})
+# Manual verification that server starts
+python -m mcp_kicad_sch_api &
+# Should start and wait for MCP protocol communication
 ```
 
 ## Debugging & Development
@@ -232,8 +296,12 @@ result = await client.call_tool("add_component", {
 # Enable verbose MCP server logging
 python -m mcp_kicad_sch_api -vv
 
-# Check server logs for specific errors
-tail -f /tmp/mcp-kicad-sch-api.log
+# MCP servers log to stderr by default, not files
+# To capture logs:
+python -m mcp_kicad_sch_api -vv 2> server.log
+
+# Or run with logging to see real-time output
+python -m mcp_kicad_sch_api -vv
 ```
 
 ### Testing New Tools
