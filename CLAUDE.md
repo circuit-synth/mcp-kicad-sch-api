@@ -167,10 +167,31 @@ python -m mcp_kicad_sch_api
 
 1. **MCP Protocol Compliance**: Follow MCP standards for tool definitions and responses
 2. **KiCAD API Accuracy**: Use correct kicad-sch-api calls and parameters
-3. **Error Handling**: Provide clear error messages for AI agents
-4. **Tool Completeness**: Support all major KiCAD schematic elements
-5. **Version Compatibility**: Maintain backward compatibility for MCP clients
-6. **Professional Quality**: Comprehensive validation and testing
+3. **KiCAD Coordinate System**: ⚠️ **CRITICAL** - KiCAD Y-axis is INVERTED (higher Y = lower on schematic)
+4. **Error Handling**: Provide clear error messages for AI agents
+5. **Tool Completeness**: Support all major KiCAD schematic elements
+6. **Version Compatibility**: Maintain backward compatibility for MCP clients
+7. **Professional Quality**: Comprehensive validation and testing
+
+## ⚠️ CRITICAL: KiCAD Coordinate System
+
+**KiCAD Y-Axis is INVERTED compared to standard math coordinates:**
+- **Y = 0**: Top of schematic
+- **Y = 100**: Lower on schematic than Y = 50
+- **Increasing Y**: Moves DOWN on schematic
+- **Decreasing Y**: Moves UP on schematic
+
+**Pin Orientations in KiCAD:**
+- **0°**: Pin points RIGHT
+- **90°**: Pin points DOWN (not up!)
+- **180°**: Pin points LEFT  
+- **270°**: Pin points UP (not down!)
+
+**This affects:**
+- Pin position calculations
+- Label orientation logic
+- Wire routing directions
+- Component placement algorithms
 
 ## Core Architecture Patterns
 
