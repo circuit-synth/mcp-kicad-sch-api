@@ -181,6 +181,102 @@ async def main():
                     "properties": {},
                     "additionalProperties": False
                 }
+            ),
+            # NEW: Pin-accurate positioning tools
+            Tool(
+                name="get_component_pin_position",
+                description="Get absolute position of a component pin",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "reference": {"type": "string", "description": "Component reference (e.g., R1)"},
+                        "pin_number": {"type": "string", "description": "Pin number (e.g., 1, 2)"}
+                    },
+                    "required": ["reference", "pin_number"],
+                    "additionalProperties": False
+                }
+            ),
+            Tool(
+                name="add_label_to_pin",
+                description="Add label directly to component pin",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "reference": {"type": "string", "description": "Component reference (e.g., R1)"},
+                        "pin_number": {"type": "string", "description": "Pin number (e.g., 1, 2)"},
+                        "text": {"type": "string", "description": "Label text"},
+                        "offset": {"type": "number", "description": "Offset distance from pin (default: 0)"}
+                    },
+                    "required": ["reference", "pin_number", "text"],
+                    "additionalProperties": False
+                }
+            ),
+            Tool(
+                name="connect_pins_with_labels",
+                description="Connect two component pins using same label",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "comp1_ref": {"type": "string", "description": "First component reference"},
+                        "pin1": {"type": "string", "description": "First component pin number"},
+                        "comp2_ref": {"type": "string", "description": "Second component reference"},
+                        "pin2": {"type": "string", "description": "Second component pin number"},
+                        "net_name": {"type": "string", "description": "Net name for connection"}
+                    },
+                    "required": ["comp1_ref", "pin1", "comp2_ref", "pin2", "net_name"],
+                    "additionalProperties": False
+                }
+            ),
+            Tool(
+                name="list_component_pins",
+                description="List all pins for a component with positions",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "reference": {"type": "string", "description": "Component reference (e.g., R1)"}
+                    },
+                    "required": ["reference"],
+                    "additionalProperties": False
+                }
+            ),
+            # Component management
+            Tool(
+                name="remove_component",
+                description="Remove component from schematic",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "reference": {"type": "string", "description": "Component reference to remove"}
+                    },
+                    "required": ["reference"],
+                    "additionalProperties": False
+                }
+            ),
+            # Wire management
+            Tool(
+                name="remove_wire",
+                description="Remove wire from schematic",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "wire_uuid": {"type": "string", "description": "Wire UUID to remove"}
+                    },
+                    "required": ["wire_uuid"],
+                    "additionalProperties": False
+                }
+            ),
+            # Label management
+            Tool(
+                name="remove_label",
+                description="Remove label from schematic",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "label_uuid": {"type": "string", "description": "Label UUID to remove"}
+                    },
+                    "required": ["label_uuid"],
+                    "additionalProperties": False
+                }
             )
         ]
     
@@ -548,6 +644,231 @@ async def main():
                     info_text += f"• Status: Loaded and ready\n"
                     
                     return [TextContent(type="text", text=info_text)]
+                    
+            # NEW: Pin-accurate positioning tools
+            elif name == "get_component_pin_position":
+                if current_schematic is None:
+                    return [TextContent(
+                        type="text",
+                        text="❌ No schematic loaded. Create or load a schematic first."
+                    )]
+                
+                reference = arguments.get("reference")
+                pin_number = arguments.get("pin_number")
+                
+                if not reference or not pin_number:
+                    return [TextContent(
+                        type="text",
+                        text="❌ reference and pin_number parameters are required"
+                    )]
+                
+                try:
+                    pin_pos = current_schematic.get_component_pin_position(reference, pin_number)
+                    if pin_pos:
+                        return [TextContent(
+                            type="text",
+                            text=f"✅ {reference} pin {pin_number} position: ({pin_pos.x:.3f}, {pin_pos.y:.3f})"
+                        )]
+                    else:
+                        return [TextContent(
+                            type="text",
+                            text=f"❌ Pin {pin_number} not found on component {reference}"
+                        )]
+                except Exception as e:
+                    return [TextContent(
+                        type="text",
+                        text=f"❌ Error getting pin position: {str(e)}"
+                    )]
+                    
+            elif name == "add_label_to_pin":
+                if current_schematic is None:
+                    return [TextContent(
+                        type="text",
+                        text="❌ No schematic loaded. Create or load a schematic first."
+                    )]
+                
+                reference = arguments.get("reference")
+                pin_number = arguments.get("pin_number")
+                text = arguments.get("text")
+                offset = arguments.get("offset", 0.0)
+                
+                if not all([reference, pin_number, text]):
+                    return [TextContent(
+                        type="text",
+                        text="❌ reference, pin_number, and text parameters are required"
+                    )]
+                
+                try:
+                    label_uuid = current_schematic.add_label_to_pin(reference, pin_number, text, offset)
+                    return [TextContent(
+                        type="text",
+                        text=f"✅ Added label '{text}' to {reference} pin {pin_number} (UUID: {label_uuid})"
+                    )]
+                except Exception as e:
+                    return [TextContent(
+                        type="text",
+                        text=f"❌ Error adding label to pin: {str(e)}"
+                    )]
+                    
+            elif name == "connect_pins_with_labels":
+                if current_schematic is None:
+                    return [TextContent(
+                        type="text",
+                        text="❌ No schematic loaded. Create or load a schematic first."
+                    )]
+                
+                comp1_ref = arguments.get("comp1_ref")
+                pin1 = arguments.get("pin1")
+                comp2_ref = arguments.get("comp2_ref")
+                pin2 = arguments.get("pin2")
+                net_name = arguments.get("net_name")
+                
+                if not all([comp1_ref, pin1, comp2_ref, pin2, net_name]):
+                    return [TextContent(
+                        type="text",
+                        text="❌ All parameters required: comp1_ref, pin1, comp2_ref, pin2, net_name"
+                    )]
+                
+                try:
+                    label_uuids = current_schematic.connect_pins_with_labels(comp1_ref, pin1, comp2_ref, pin2, net_name)
+                    return [TextContent(
+                        type="text",
+                        text=f"✅ Connected {comp1_ref}:{pin1} to {comp2_ref}:{pin2} with net '{net_name}' ({len(label_uuids)} labels created)"
+                    )]
+                except Exception as e:
+                    return [TextContent(
+                        type="text",
+                        text=f"❌ Error connecting pins: {str(e)}"
+                    )]
+                    
+            elif name == "list_component_pins":
+                if current_schematic is None:
+                    return [TextContent(
+                        type="text",
+                        text="❌ No schematic loaded. Create or load a schematic first."
+                    )]
+                
+                reference = arguments.get("reference")
+                if not reference:
+                    return [TextContent(
+                        type="text",
+                        text="❌ reference parameter is required"
+                    )]
+                
+                try:
+                    pins = current_schematic.list_component_pins(reference)
+                    if pins:
+                        pins_text = f"📍 {reference} pins:\n\n"
+                        for pin_num, pin_pos in pins:
+                            pins_text += f"• Pin {pin_num}: ({pin_pos.x:.3f}, {pin_pos.y:.3f})\n"
+                        return [TextContent(type="text", text=pins_text)]
+                    else:
+                        return [TextContent(
+                            type="text",
+                            text=f"❌ No pins found for component {reference}"
+                        )]
+                except Exception as e:
+                    return [TextContent(
+                        type="text",
+                        text=f"❌ Error listing pins: {str(e)}"
+                    )]
+                    
+            # Component management
+            elif name == "remove_component":
+                if current_schematic is None:
+                    return [TextContent(
+                        type="text",
+                        text="❌ No schematic loaded. Create or load a schematic first."
+                    )]
+                
+                reference = arguments.get("reference")
+                if not reference:
+                    return [TextContent(
+                        type="text",
+                        text="❌ reference parameter is required"
+                    )]
+                
+                try:
+                    removed = current_schematic.components.remove(reference)
+                    if removed:
+                        return [TextContent(
+                            type="text",
+                            text=f"✅ Removed component {reference}"
+                        )]
+                    else:
+                        return [TextContent(
+                            type="text",
+                            text=f"❌ Component {reference} not found"
+                        )]
+                except Exception as e:
+                    return [TextContent(
+                        type="text",
+                        text=f"❌ Error removing component: {str(e)}"
+                    )]
+                    
+            elif name == "remove_wire":
+                if current_schematic is None:
+                    return [TextContent(
+                        type="text",
+                        text="❌ No schematic loaded. Create or load a schematic first."
+                    )]
+                
+                wire_uuid = arguments.get("wire_uuid")
+                if not wire_uuid:
+                    return [TextContent(
+                        type="text",
+                        text="❌ wire_uuid parameter is required"
+                    )]
+                
+                try:
+                    removed = current_schematic.remove_wire(wire_uuid)
+                    if removed:
+                        return [TextContent(
+                            type="text",
+                            text=f"✅ Removed wire {wire_uuid}"
+                        )]
+                    else:
+                        return [TextContent(
+                            type="text",
+                            text=f"❌ Wire {wire_uuid} not found"
+                        )]
+                except Exception as e:
+                    return [TextContent(
+                        type="text",
+                        text=f"❌ Error removing wire: {str(e)}"
+                    )]
+                    
+            elif name == "remove_label":
+                if current_schematic is None:
+                    return [TextContent(
+                        type="text",
+                        text="❌ No schematic loaded. Create or load a schematic first."
+                    )]
+                
+                label_uuid = arguments.get("label_uuid")
+                if not label_uuid:
+                    return [TextContent(
+                        type="text",
+                        text="❌ label_uuid parameter is required"
+                    )]
+                
+                try:
+                    removed = current_schematic.remove_label(label_uuid)
+                    if removed:
+                        return [TextContent(
+                            type="text",
+                            text=f"✅ Removed label {label_uuid}"
+                        )]
+                    else:
+                        return [TextContent(
+                            type="text",
+                            text=f"❌ Label {label_uuid} not found"
+                        )]
+                except Exception as e:
+                    return [TextContent(
+                        type="text",
+                        text=f"❌ Error removing label: {str(e)}"
+                    )]
             
             else:
                 return [TextContent(
