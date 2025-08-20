@@ -1061,9 +1061,8 @@ async def main():
                 new_name = arguments.get("new_name")
                 
                 try:
-                    global current_schematic
                     cloned = current_schematic.clone(new_name)
-                    current_schematic = cloned  # Switch to cloned schematic
+                    # Note: Not switching to cloned schematic to avoid state confusion
                     
                     return [TextContent(
                         type="text",
