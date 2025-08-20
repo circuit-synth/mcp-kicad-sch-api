@@ -86,6 +86,7 @@ async def main():
                         "reference": {"type": "string", "description": "Component reference (e.g., R1)"},
                         "value": {"type": "string", "description": "Component value (e.g., 10k)"},
                         "position": {"type": "array", "items": {"type": "number"}, "description": "[x, y] coordinates"},
+                        "footprint": {"type": "string", "description": "Component footprint (e.g., Resistor_SMD:R_0603_1608Metric)"},
                         "properties": {"type": "string", "description": "Additional properties as key=value pairs"}
                     },
                     "required": ["lib_id", "reference", "value", "position"],
@@ -116,6 +117,50 @@ async def main():
                         "end_pos": {"type": "array", "items": {"type": "number"}, "description": "[x, y] end coordinates"}
                     },
                     "required": ["start_pos", "end_pos"],
+                    "additionalProperties": False
+                }
+            ),
+            Tool(
+                name="add_label",
+                description="Add a text label to the schematic",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "text": {"type": "string", "description": "Label text"},
+                        "position": {"type": "array", "items": {"type": "number"}, "description": "[x, y] coordinates"},
+                        "rotation": {"type": "number", "description": "Text rotation in degrees"},
+                        "size": {"type": "number", "description": "Font size"}
+                    },
+                    "required": ["text", "position"],
+                    "additionalProperties": False
+                }
+            ),
+            Tool(
+                name="add_hierarchical_label",
+                description="Add a hierarchical label to the schematic",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "text": {"type": "string", "description": "Label text"},
+                        "position": {"type": "array", "items": {"type": "number"}, "description": "[x, y] coordinates"},
+                        "shape": {"type": "string", "description": "Label shape (input, output, bidirectional, tristate, passive, unspecified)"},
+                        "rotation": {"type": "number", "description": "Text rotation in degrees"},
+                        "size": {"type": "number", "description": "Font size"}
+                    },
+                    "required": ["text", "position"],
+                    "additionalProperties": False
+                }
+            ),
+            Tool(
+                name="add_junction",
+                description="Add a junction (connection point) to the schematic",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "position": {"type": "array", "items": {"type": "number"}, "description": "[x, y] coordinates"},
+                        "diameter": {"type": "number", "description": "Junction diameter (optional)"}
+                    },
+                    "required": ["position"],
                     "additionalProperties": False
                 }
             ),
@@ -205,6 +250,7 @@ async def main():
                 reference = arguments.get("reference")
                 value = arguments.get("value")
                 position = arguments.get("position")
+                footprint = arguments.get("footprint", "")
                 properties = arguments.get("properties", "")
                 
                 if not all([lib_id, reference, value, position]):
@@ -221,11 +267,13 @@ async def main():
                 
                 logger.info(f"Adding component: {lib_id} {reference}={value} at {position}")
                 
+                # Use the correct API - components.add() method
                 component = current_schematic.components.add(
                     lib_id=lib_id,
                     reference=reference,
                     value=value,
-                    position=tuple(position)
+                    position=tuple(position),
+                    footprint=footprint if footprint else None
                 )
                 
                 # Add additional properties if provided
@@ -253,25 +301,31 @@ async def main():
                 
                 logger.info(f"Searching components: {query}")
                 
-                # Use the kicad-sch-api search functionality
-                from kicad_sch_api.discovery.search_index import search_components as search_func
-                
-                results = search_func(query, library=library, limit=limit)
-                
-                if not results:
+                try:
+                    # Use the kicad-sch-api search functionality
+                    from kicad_sch_api.discovery.search_index import search_components as search_func
+                    
+                    results = search_func(query, library=library, limit=limit)
+                    
+                    if not results:
+                        return [TextContent(
+                            type="text",
+                            text=f"No components found matching '{query}'"
+                        )]
+                    
+                    result_text = f"Found {len(results)} components matching '{query}':\n\n"
+                    for result in results[:limit]:
+                        result_text += f"• {result.get('lib_id', 'Unknown')}"
+                        if 'description' in result:
+                            result_text += f" - {result['description']}"
+                        result_text += "\n"
+                    
+                    return [TextContent(type="text", text=result_text)]
+                except ImportError:
                     return [TextContent(
                         type="text",
-                        text=f"No components found matching '{query}'"
+                        text="❌ Component search functionality not available"
                     )]
-                
-                result_text = f"Found {len(results)} components matching '{query}':\n\n"
-                for result in results[:limit]:
-                    result_text += f"• {result.get('lib_id', 'Unknown')}"
-                    if 'description' in result:
-                        result_text += f" - {result['description']}"
-                    result_text += "\n"
-                
-                return [TextContent(type="text", text=result_text)]
                 
             elif name == "add_wire":
                 if current_schematic is None:
@@ -297,14 +351,145 @@ async def main():
                 
                 logger.info(f"Adding wire from {start_pos} to {end_pos}")
                 
-                current_schematic.add_wire(
+                # Use the correct API method - add_wire with start and end parameters
+                wire_uuid = current_schematic.add_wire(
                     start=tuple(start_pos),
                     end=tuple(end_pos)
                 )
                 
                 return [TextContent(
                     type="text",
-                    text=f"✅ Added wire from {start_pos} to {end_pos}"
+                    text=f"✅ Added wire from {start_pos} to {end_pos} (UUID: {wire_uuid})"
+                )]
+                
+            elif name == "add_label":
+                if current_schematic is None:
+                    return [TextContent(
+                        type="text",
+                        text="❌ No schematic loaded. Create or load a schematic first."
+                    )]
+                
+                text = arguments.get("text")
+                position = arguments.get("position")
+                rotation = arguments.get("rotation", 0.0)
+                size = arguments.get("size", 1.27)
+                
+                if not text or not position:
+                    return [TextContent(
+                        type="text",
+                        text="❌ text and position parameters are required"
+                    )]
+                
+                if len(position) != 2:
+                    return [TextContent(
+                        type="text",
+                        text="❌ Position must be [x, y] coordinates"
+                    )]
+                
+                logger.info(f"Adding label '{text}' at {position}")
+                
+                # Use the correct API method
+                label_uuid = current_schematic.add_label(
+                    text=text,
+                    position=tuple(position),
+                    rotation=rotation,
+                    size=size
+                )
+                
+                return [TextContent(
+                    type="text",
+                    text=f"✅ Added label '{text}' at {position} (UUID: {label_uuid})"
+                )]
+                
+            elif name == "add_hierarchical_label":
+                if current_schematic is None:
+                    return [TextContent(
+                        type="text",
+                        text="❌ No schematic loaded. Create or load a schematic first."
+                    )]
+                
+                text = arguments.get("text")
+                position = arguments.get("position")
+                shape = arguments.get("shape", "input")
+                rotation = arguments.get("rotation", 0.0)
+                size = arguments.get("size", 1.27)
+                
+                if not text or not position:
+                    return [TextContent(
+                        type="text",
+                        text="❌ text and position parameters are required"
+                    )]
+                
+                if len(position) != 2:
+                    return [TextContent(
+                        type="text",
+                        text="❌ Position must be [x, y] coordinates"
+                    )]
+                
+                logger.info(f"Adding hierarchical label '{text}' at {position}")
+                
+                # Import the shape enum
+                from kicad_sch_api.core.types import HierarchicalLabelShape
+                
+                # Convert string shape to enum
+                shape_map = {
+                    "input": HierarchicalLabelShape.INPUT,
+                    "output": HierarchicalLabelShape.OUTPUT,
+                    "bidirectional": HierarchicalLabelShape.BIDIRECTIONAL,
+                    "tristate": HierarchicalLabelShape.TRISTATE,
+                    "passive": HierarchicalLabelShape.PASSIVE,
+                    "unspecified": HierarchicalLabelShape.UNSPECIFIED
+                }
+                
+                shape_enum = shape_map.get(shape.lower(), HierarchicalLabelShape.INPUT)
+                
+                # Use the correct API method
+                label_uuid = current_schematic.add_hierarchical_label(
+                    text=text,
+                    position=tuple(position),
+                    shape=shape_enum,
+                    rotation=rotation,
+                    size=size
+                )
+                
+                return [TextContent(
+                    type="text",
+                    text=f"✅ Added hierarchical label '{text}' ({shape}) at {position} (UUID: {label_uuid})"
+                )]
+                
+            elif name == "add_junction":
+                if current_schematic is None:
+                    return [TextContent(
+                        type="text",
+                        text="❌ No schematic loaded. Create or load a schematic first."
+                    )]
+                
+                position = arguments.get("position")
+                diameter = arguments.get("diameter", 0.0)
+                
+                if not position:
+                    return [TextContent(
+                        type="text",
+                        text="❌ position parameter is required"
+                    )]
+                
+                if len(position) != 2:
+                    return [TextContent(
+                        type="text",
+                        text="❌ Position must be [x, y] coordinates"
+                    )]
+                
+                logger.info(f"Adding junction at {position}")
+                
+                # Use the junction collection to add junction
+                junction_uuid = current_schematic.junctions.add(
+                    position=tuple(position),
+                    diameter=diameter
+                )
+                
+                return [TextContent(
+                    type="text",
+                    text=f"✅ Added junction at {position} (UUID: {junction_uuid})"
                 )]
                 
             elif name == "list_components":
@@ -314,7 +499,7 @@ async def main():
                         text="❌ No schematic loaded. Create or load a schematic first."
                     )]
                 
-                components = current_schematic.components.list()
+                components = list(current_schematic.components)
                 
                 if not components:
                     return [TextContent(
@@ -327,6 +512,8 @@ async def main():
                     result_text += f"• {comp.reference} ({comp.lib_id}) = {comp.value}"
                     if hasattr(comp, 'position'):
                         result_text += f" at {comp.position}"
+                    if hasattr(comp, 'footprint') and comp.footprint:
+                        result_text += f" [{comp.footprint}]"
                     result_text += "\n"
                 
                 return [TextContent(type="text", text=result_text)]
@@ -338,18 +525,29 @@ async def main():
                         text="❌ No schematic loaded. Create or load a schematic first."
                     )]
                 
-                info = current_schematic.get_info()
-                
-                info_text = "📋 Schematic Information:\n\n"
-                info_text += f"• Title: {info.get('title', 'Untitled')}\n"
-                info_text += f"• Components: {info.get('component_count', 0)}\n"
-                info_text += f"• Wires: {info.get('wire_count', 0)}\n"
-                info_text += f"• Sheets: {info.get('sheet_count', 0)}\n"
-                
-                if 'version' in info:
-                    info_text += f"• Version: {info['version']}\n"
-                
-                return [TextContent(type="text", text=info_text)]
+                # Get comprehensive schematic information
+                try:
+                    summary = current_schematic.get_summary()
+                    
+                    info_text = "📋 Schematic Information:\n\n"
+                    info_text += f"• Title: {summary.get('title', 'Untitled')}\n"
+                    info_text += f"• Components: {summary.get('component_count', 0)}\n"
+                    info_text += f"• Modified: {summary.get('modified', False)}\n"
+                    
+                    # Additional stats if available
+                    if hasattr(current_schematic, 'wires'):
+                        info_text += f"• Wires: {len(current_schematic.wires)}\n"
+                    if hasattr(current_schematic, 'junctions'):
+                        info_text += f"• Junctions: {len(current_schematic.junctions)}\n"
+                    
+                    return [TextContent(type="text", text=info_text)]
+                except Exception as e:
+                    # Fallback info
+                    info_text = "📋 Schematic Information:\n\n"
+                    info_text += f"• Components: {len(list(current_schematic.components))}\n"
+                    info_text += f"• Status: Loaded and ready\n"
+                    
+                    return [TextContent(type="text", text=info_text)]
             
             else:
                 return [TextContent(
