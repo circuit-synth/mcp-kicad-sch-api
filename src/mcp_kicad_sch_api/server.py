@@ -140,7 +140,7 @@ async def main():
         ]
     
     @server.call_tool()
-    async def create_schematic(arguments: dict) -> List[TextContent]:
+    async def create_schematic(name: str, arguments: dict) -> List[TextContent]:
         """Create a new KiCAD schematic.
         
         Args:
@@ -169,7 +169,7 @@ async def main():
             )]
     
     @server.call_tool()
-    async def load_schematic(arguments: dict) -> List[TextContent]:
+    async def load_schematic(name: str, arguments: dict) -> List[TextContent]:
         """Load an existing KiCAD schematic file.
         
         Args:
@@ -203,7 +203,7 @@ async def main():
             )]
     
     @server.call_tool()
-    async def save_schematic(arguments: dict) -> List[TextContent]:
+    async def save_schematic(name: str, arguments: dict) -> List[TextContent]:
         """Save the current schematic to a file.
         
         Args:
@@ -242,7 +242,7 @@ async def main():
             )]
     
     @server.call_tool()
-    async def add_component(arguments: dict) -> List[TextContent]:
+    async def add_component(name: str, arguments: dict) -> List[TextContent]:
         """Add a component to the current schematic.
         
         Args:
@@ -303,7 +303,7 @@ async def main():
             )]
     
     @server.call_tool()
-    async def search_components(arguments: dict) -> List[TextContent]:
+    async def search_components(name: str, arguments: dict) -> List[TextContent]:
         """Search for components in KiCAD symbol libraries.
         
         Args:
@@ -352,7 +352,7 @@ async def main():
             )]
     
     @server.call_tool()
-    async def add_wire(arguments: dict) -> List[TextContent]:
+    async def add_wire(name: str, arguments: dict) -> List[TextContent]:
         """Add a wire connection between two points.
         
         Args:
@@ -401,7 +401,7 @@ async def main():
             )]
     
     @server.call_tool()
-    async def list_components(arguments: dict) -> List[TextContent]:
+    async def list_components(name: str, arguments: dict) -> List[TextContent]:
         """List all components in the current schematic.
         
         Args:
@@ -442,7 +442,7 @@ async def main():
             )]
     
     @server.call_tool()
-    async def get_schematic_info(arguments: dict) -> List[TextContent]:
+    async def get_schematic_info(name: str, arguments: dict) -> List[TextContent]:
         """Get information about the current schematic.
         
         Args:

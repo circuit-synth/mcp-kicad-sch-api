@@ -9,7 +9,7 @@ import logging
 import click
 from .server import main as serve
 
-__version__ = "0.1.5"
+__version__ = "0.1.6"
 
 @click.command()
 @click.option(
