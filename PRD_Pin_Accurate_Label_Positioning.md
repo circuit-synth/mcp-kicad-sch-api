@@ -12,122 +12,162 @@ Current KiCAD schematic generation has critical connectivity issues:
 
 **Result**: Generated schematics have components that appear connected but have no actual electrical connectivity, whether using labels OR wires.
 
+## Deep Analysis of Circuit-Synth Implementation
+
+### **Critical Discovery: Y-Axis Handling in Pin Transformations**
+
+**ISSUE IDENTIFIED**: Circuit-synth uses a **fundamentally different coordinate transformation** that we missed:
+
+From `geometry_utils.py:77-80`:
+```python
+# Note: We negate Y here because in symbol definitions, positive Y means "up"
+# but in KiCad's world coordinates, positive Y means "down"
+rotated_x = pin.position.x * cos_a - (-pin.position.y) * sin_a
+rotated_y = pin.position.x * sin_a + (-pin.position.y) * cos_a
+```
+
+**Key Insight**: Circuit-synth **NEGATES the pin Y coordinate** during transformation (`-pin.position.y`), but our `apply_transformation` function does NOT.
+
+### **Pin Positioning Workflow Analysis**
+
+#### **Circuit-Synth Workflow:**
+1. **Pin Position Calculation** (`geometry_utils.py:19-48`):
+   ```python
+   def get_actual_pin_position(symbol: SchematicSymbol, pin_number: str) -> Optional[Point]:
+       for pin in symbol.pins:
+           if pin.number == pin_number:
+               world_pos = GeometryUtils.transform_pin_to_world(pin, symbol.position, symbol.rotation)
+               return world_pos
+   ```
+
+2. **Pin Transformation** (`geometry_utils.py:51-90`):
+   ```python
+   def transform_pin_to_world(pin: SchematicPin, symbol_pos: Point, symbol_rotation: float) -> Point:
+       # CRITICAL: Negates Y coordinate for KiCAD coordinate system
+       rotated_x = pin.position.x * cos_a - (-pin.position.y) * sin_a  # Note: -pin.position.y
+       rotated_y = pin.position.x * sin_a + (-pin.position.y) * cos_a   # Note: -pin.position.y
+       
+       world_x = symbol_pos.x + rotated_x
+       world_y = symbol_pos.y + rotated_y
+       return Point(world_x, world_y)
+   ```
+
+3. **Label Positioning** (`geometry_utils.py:163-187`):
+   ```python
+   def calculate_label_position(pin: SchematicPin, pin_world_pos: Point, symbol_rotation: float, offset_distance: float = 0) -> Point:
+       # Place labels at the pin position (where pin connects to component)
+       # KiCad will handle the label anchor correctly based on its orientation
+       return pin_world_pos  # Simple: just use pin position directly
+   ```
+
+4. **Label Orientation** (`geometry_utils.py:190-231`):
+   ```python
+   def calculate_label_orientation(pin: SchematicPin, symbol_rotation: float) -> float:
+       world_orientation = (pin.orientation + symbol_rotation) % 360  # Uses pin.orientation
+       opposite_orientation = (world_orientation + 180) % 360
+       
+       # Direct mapping (NO Y-axis inversion here):
+       if opposite_orientation < 45 or >= 315: return 0    # Right
+       elif 45 <= opposite_orientation < 135: return 90   # Up  
+       elif 135 <= opposite_orientation < 225: return 180 # Left
+       else: return 270  # Down
+   ```
+
+### **Our Implementation vs Circuit-Synth**
+
+#### **Key Differences Found:**
+
+1. **Y-Coordinate Negation** ⭐ **CRITICAL**:
+   - **Circuit-Synth**: Uses `-pin.position.y` in transformations
+   - **Our Code**: Uses `pin.position.y` directly
+   - **Impact**: Pin positions are flipped vertically
+
+2. **Pin Attribute Names**:
+   - **Circuit-Synth**: Uses `pin.orientation` (int)
+   - **Our Code**: Uses `pin.rotation` (float)
+   - **Status**: Values appear to be the same
+
+3. **Transformation Logic**:
+   - **Circuit-Synth**: Custom transform with Y-negation
+   - **Our Code**: Standard geometric transformation
+   - **Impact**: Different pin position results
+
+4. **Label Orientation Mapping**:
+   - **Circuit-Synth**: Direct 1:1 mapping (90° = Up, 270° = Down)
+   - **Our Code**: Attempted Y-axis compensation (90° → 270°, 270° → 90°)
+   - **Issue**: Our compensation was wrong because base transformation is different
+
+### **Root Cause Analysis**
+
+The **fundamental issue** is that circuit-synth handles the KiCAD Y-axis inversion at the **transformation level** (by negating Y coordinates), while we tried to handle it at the **orientation mapping level**.
+
+**Circuit-synth approach**: Transform coordinates correctly → Use standard orientation mapping
+**Our approach**: Use standard transformation → Try to compensate in orientation (WRONG)
+
+### **Resistor Pin Analysis from KiCAD Symbol**
+
+From Device.kicad_sym:
+```
+Pin 1: (at 0 3.81 270)   ← Pin at +3.81 Y, orientation 270° (UP)
+Pin 2: (at 0 -3.81 90)   ← Pin at -3.81 Y, orientation 90° (DOWN)
+```
+
+With circuit-synth Y-negation:
+- **Pin 1**: Y = 3.81 → **-3.81** (negated) → Component center + (-3.81) → **LOWER Y** (higher on schematic)
+- **Pin 2**: Y = -3.81 → **3.81** (negated) → Component center + 3.81 → **HIGHER Y** (lower on schematic)
+
+This explains why:
+- **Pin 1** ends up as the **TOP pin** (user observation: Y=97.79)
+- **Pin 2** ends up as the **BOTTOM pin** (user observation: Y=105.41)
+
 ## Proposed Solution
 
-Implement comprehensive pin-accurate connections (both labels AND wires) by porting proven logic from circuit-synth:
+### **Phase 1: Fix Pin Position Calculation**
+1. **Update `apply_transformation`** to match circuit-synth Y-negation logic
+2. **Use `pin.orientation` if available**, fallback to `pin.rotation`
+3. **Implement circuit-synth transformation exactly**
 
-### **Phase 1: Base Library Enhancement (kicad-sch-api)**
-- Add pin position calculation with transformation support
-- Implement smart label positioning algorithms
-- **Add pin-to-pin wire routing capabilities**
-- Add component geometry and symbol parsing capabilities
-- Port proven circuit-synth functions to base library
+### **Phase 2: Fix Label Orientation**
+1. **Use direct orientation mapping** (no Y-axis compensation)
+2. **Follow circuit-synth mapping exactly**: 90° = Up, 270° = Down
+3. **Test with real KiCAD files** to verify orientations
 
-### **Phase 2: MCP Server Integration (mcp-kicad-sch-api)**  
-- Add new MCP tools for pin-based operations (labels AND wires)
-- Enhance existing tools with pin intelligence
-- **Add pin-to-pin wire drawing tools**
-- Implement connection validation and verification
-- Add power symbol detection and handling
-
-## Architecture Decision: Logic Migration Strategy
-
-**Migration from circuit-synth to kicad-sch-api** ✅ **RECOMMENDED**
-- **Extract and refactor** pin positioning logic from circuit-synth
-- **Improve and modernize** the implementation during migration
-- **Make kicad-sch-api the authoritative source** for KiCAD manipulation
-- **Update circuit-synth to depend on kicad-sch-api** instead of maintaining duplicate logic
-- **Create cleaner, more maintainable APIs** in the process
-
-**Benefits of Migration:**
-- Single source of truth for KiCAD schematic manipulation
-- Reduced code duplication across repositories
-- Better testing and maintenance of core functionality
-- circuit-synth becomes lighter and more focused on high-level workflows
-
-**Decision**: **Migrate** the pin positioning logic from circuit-synth to kicad-sch-api, then update circuit-synth to use the new API.
+### **Phase 3: Comprehensive Testing**
+1. **Verify pin positions** match KiCAD display exactly
+2. **Test all pin orientations** (0°, 90°, 180°, 270°)
+3. **Validate label readability** and electrical connectivity
 
 ## Technical Implementation
 
-### **Base Library Changes (kicad-sch-api)**
-
-#### **New Core Functions:**
+### **Critical Fix #1: Pin Position Transformation**
 ```python
-# In kicad_sch_api/core/schematic.py
-def get_component_pin_position(self, reference: str, pin_number: str) -> Optional[Point]:
-    """Get absolute position of component pin with transformations."""
+# Fix apply_transformation to match circuit-synth
+def apply_transformation(point: Tuple[float, float], origin: Point, rotation: float, mirror: Optional[str] = None) -> Tuple[float, float]:
+    x, y = point
     
-def add_label_to_pin(self, reference: str, pin_number: str, text: str, offset: float = 0) -> str:
-    """Add label directly to component pin location."""
+    # CIRCUIT-SYNTH APPROACH: Negate Y for KiCAD coordinate system
+    y = -y  # This is the missing piece!
     
-def connect_pins_with_labels(self, comp1_ref: str, pin1: str, comp2_ref: str, pin2: str, net_name: str) -> List[str]:
-    """Connect two component pins using same net label."""
-
-def connect_pins_with_wire(self, comp1_ref: str, pin1: str, comp2_ref: str, pin2: str) -> str:
-    """Draw wire directly between two component pins."""
+    # Apply rotation (standard)
+    if rotation == 90: x, y = -y, x
+    elif rotation == 180: x, y = -x, -y  
+    elif rotation == 270: x, y = y, -x
     
-def add_wire_to_pin(self, start_pos: Point, comp_ref: str, pin_number: str) -> str:
-    """Draw wire from arbitrary position to specific component pin."""
+    return (origin.x + x, origin.y + y)
 ```
 
-#### **Enhanced Component Support:**
+### **Critical Fix #2: Label Orientation Mapping**
 ```python
-# Enhanced add_component with geometry support
-def add_component(self, lib_id: str, reference: str, value: str, position: Point, 
-                  rotation: float = 0, mirror: str = None, footprint: str = None) -> Component:
-    """Add component with full transformation support."""
-```
-
-#### **Functions to Migrate from Circuit-Synth:**
-1. **`get_pin_position()`** from `connection_utils.py:99-141` → Extract to `kicad_sch_api/core/pin_utils.py`
-2. **`apply_transformation()`** from `connection_utils.py:61-97` → Extract to `kicad_sch_api/core/geometry.py`
-3. **`calculate_label_position()`** from `geometry_utils.py:163-187` → Extract to `kicad_sch_api/core/label_positioning.py`
-4. **`calculate_label_orientation()`** from `geometry_utils.py:190-229` → Extract to `kicad_sch_api/core/label_positioning.py` ⭐ **CRITICAL**
-5. **`suggest_label_for_component_pin()`** from `label_utils.py:247-303` → Extract to `kicad_sch_api/core/label_positioning.py`
-6. **`transform_pin_to_world()`** coordinate conversion → Extract to `kicad_sch_api/core/geometry.py`
-
-#### **Migration Benefits:**
-- **Cleaner APIs**: Refactor during migration for better usability
-- **Better Testing**: Comprehensive test suite in kicad-sch-api
-- **Reduced Duplication**: Single source of truth for pin logic
-- **Improved Documentation**: Better API docs and examples
-
-#### **Pin Orientation Logic (CRITICAL):**
-From circuit-synth analysis, labels must be positioned based on pin direction:
-- **Pin pointing right (0°)** → Label placed to the **right** of pin with **0° orientation**
-- **Pin pointing up (90°)** → Label placed **above** pin with **90° orientation**  
-- **Pin pointing left (180°)** → Label placed to the **left** of pin with **180° orientation**
-- **Pin pointing down (270°)** → Label placed **below** pin with **270° orientation**
-
-**Key Algorithm**: 
-```python
-# From geometry_utils.py:209-229
-world_orientation = (pin.orientation + symbol_rotation) % 360
-opposite_orientation = (world_orientation + 180) % 360  # Label points AWAY from component
-```
-
-This ensures labels are readable and positioned logically relative to pin direction.
-
-### **MCP Server Changes (mcp-kicad-sch-api)**
-
-#### **New MCP Tools:**
-```python
-# New MCP tools for pin operations
-- get_component_pin_position(reference: str, pin_number: str) -> position
-- add_label_to_pin(reference: str, pin_number: str, text: str) -> label_uuid  
-- connect_pins_with_labels(comp1_ref: str, pin1: str, comp2_ref: str, pin2: str, net_name: str) -> connection_info
-- connect_pins_with_wire(comp1_ref: str, pin1: str, comp2_ref: str, pin2: str) -> wire_uuid
-- add_wire_to_pin(start_pos: [x,y], comp_ref: str, pin_number: str) -> wire_uuid
-- list_component_pins(reference: str) -> pin_list
-```
-
-#### **Enhanced Existing Tools:**
-```python
-# Enhanced add_component with rotation support
-- add_component(lib_id, reference, value, position, rotation?, mirror?, footprint?) -> component_info
-
-# Smart add_label that detects power symbols  
-- add_label(text, position, auto_pin_detect?) -> label_uuid
+# Use direct mapping (no Y-axis compensation)
+def calculate_label_orientation(pin_orientation: float, component_rotation: float) -> float:
+    world_orientation = (pin_orientation + component_rotation) % 360
+    opposite_orientation = (world_orientation + 180) % 360
+    
+    # Direct circuit-synth mapping:
+    if opposite_orientation < 45 or >= 315: return 0    # Right
+    elif 45 <= opposite_orientation < 135: return 90   # Up
+    elif 135 <= opposite_orientation < 225: return 180 # Left  
+    else: return 270  # Down
 ```
 
 ## Success Criteria
@@ -142,8 +182,8 @@ This ensures labels are readable and positioned logically relative to pin direct
 7. ✅ Label text orientation matches pin direction for readability
 
 ### **Technical Requirements:**
-1. ✅ Port circuit-synth pin positioning logic to base library
-2. ✅ Add comprehensive pin geometry calculation  
+1. ✅ **Implement circuit-synth Y-negation transformation logic**
+2. ✅ **Use direct orientation mapping (no double-compensation)**
 3. ✅ Implement transformation math (rotation, mirroring)
 4. ✅ Add MCP tools for pin-based operations
 5. ✅ Maintain backward compatibility with existing MCP tools
@@ -159,75 +199,48 @@ This ensures labels are readable and positioned logically relative to pin direct
 
 ## Implementation Plan
 
-### **Phase 1: Logic Migration to Base Library (Estimated: 3-4 hours)**
-1. **Extract logic from circuit-synth**: Copy relevant functions to kicad-sch-api
-2. **Refactor and improve**: Clean up APIs, add better type hints, improve documentation
-3. **Add new modules**: Create `pin_utils.py`, `geometry.py`, `label_positioning.py`
-4. **Integrate with existing Schematic class**: Add new methods for pin operations
-5. **Create comprehensive tests**: Test pin positioning, transformations, label placement
-6. **Update circuit-synth**: Modify circuit-synth to import from kicad-sch-api instead of local logic
+### **Phase 1: Fix Coordinate Transformation (Estimated: 2 hours)**
+1. **Update `apply_transformation`** to match circuit-synth Y-negation
+2. **Update `get_component_pin_position`** to use corrected transformation
+3. **Test pin positions** against KiCAD manual measurements
+4. **Verify all components** have correct pin locations
 
-### **Phase 2: MCP Server (Estimated: 1-2 hours)**
-1. Add new MCP tools for pin operations
-2. Enhance existing tools with pin intelligence
-3. Update tool schemas and documentation  
-4. Add integration tests for pin-based workflows
-5. Update version and release to PyPI
+### **Phase 2: Fix Label Orientation (Estimated: 1 hour)**
+1. **Remove Y-axis compensation** from orientation mapping
+2. **Use direct circuit-synth mapping** (90° = Up, 270° = Down)
+3. **Test label orientations** with manual KiCAD verification
+4. **Ensure all labels** are readable and point away from pins
 
-### **Phase 3: Validation (Estimated: 1 hour)**
-1. Test with real voltage divider circuit
-2. Verify electrical connectivity in KiCAD
-3. Validate against multiple component types
-4. Performance testing with complex circuits
-
-## Risk Assessment
-
-### **Low Risk:**
-- Circuit-synth logic is proven and tested
-- Base library changes are additive (no breaking changes)
-- Pin positioning is well-understood domain
-
-### **Medium Risk:**
-- Symbol library compatibility across different KiCAD versions
-- Component transformation edge cases (complex rotations)
-
-### **Mitigation Strategies:**
-- Comprehensive test suite with real KiCAD projects
-- Gradual rollout with backward compatibility
-- Extensive validation against circuit-synth reference implementations
-
-## Dependencies
-
-- ✅ Circuit-synth codebase available as submodule
-- ✅ Existing kicad-sch-api has component and label infrastructure
-- ✅ MCP server has working tool dispatch system
-- ✅ Symbol cache system exists for geometry lookups
-
-## Success Metrics
-
-1. **Connectivity Test**: 100% of generated labels create electrical connections in KiCAD
-2. **Position Accuracy**: Pin positions within 0.01mm of expected values  
-3. **Power Symbol Intelligence**: Zero redundant labels on power symbols
-4. **Transformation Support**: All rotation/mirror combinations work correctly
-5. **Performance**: Pin position calculation <10ms per component
+### **Phase 3: Integration and Testing (Estimated: 2 hours)**
+1. **Update MCP server** with corrected logic
+2. **Run comprehensive tests** to verify all functionality
+3. **Create voltage divider** with proper electrical connectivity
+4. **Validate with real KiCAD projects**
 
 ## Migration Impact
 
 ### **Repositories Affected:**
-1. **kicad-sch-api**: Gets new pin positioning and label logic (⬆️ Enhanced)
-2. **mcp-kicad-sch-api**: Gets new MCP tools using migrated logic (⬆️ Enhanced)  
-3. **circuit-synth**: Removes duplicate logic, imports from kicad-sch-api (🔄 Simplified)
+1. **kicad-sch-api**: Gets corrected pin positioning and label logic (🔧 **Fixed**)
+2. **mcp-kicad-sch-api**: Gets working MCP tools using corrected logic (⬆️ Enhanced)  
+3. **circuit-synth**: Remains unchanged (already working correctly)
 
 ### **Benefits:**
-- **Single Source of Truth**: Pin logic centralized in kicad-sch-api
-- **Better Maintenance**: Easier to update and test core functionality
-- **Reduced Complexity**: circuit-synth becomes lighter and more focused
-- **Improved APIs**: Migration allows for API improvements and modernization
+- **Correct Pin Positioning**: Pin positions match KiCAD exactly
+- **Proper Label Orientation**: Labels are readable and correctly oriented
+- **Electrical Connectivity**: Generated schematics have working connections
+- **Circuit-Synth Compatibility**: Same algorithms for consistent results
 
 ---
 
-**Total Estimated Time**: 5-7 hours (includes migration effort)  
-**Priority**: High (Critical for usable schematic generation + repo consolidation)  
-**Recommended Approach**: Migrate logic to base library, update both MCP server and circuit-synth to use it
+**Total Estimated Time**: 5 hours (reduced due to specific fixes identified)  
+**Priority**: **CRITICAL** (Blocking usable schematic generation)  
+**Root Cause**: **Y-coordinate negation missing in transformation logic**
+**Fix**: **Apply circuit-synth Y-negation transformation exactly**
 
-Please review this PRD and let me know if you'd like me to proceed with implementation or if you have any feedback/changes.
+## Next Steps
+
+1. **Immediate**: Fix `apply_transformation` with Y-negation
+2. **Verify**: Pin positions match KiCAD coordinates exactly  
+3. **Fix**: Label orientation mapping to use direct circuit-synth approach
+4. **Test**: Complete voltage divider with proper connectivity
+5. **Integrate**: Update MCP server with working logic
