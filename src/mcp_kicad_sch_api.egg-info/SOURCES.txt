@@ -10,4 +10,5 @@ src/mcp_kicad_sch_api.egg-info/dependency_links.txt
 src/mcp_kicad_sch_api.egg-info/entry_points.txt
 src/mcp_kicad_sch_api.egg-info/requires.txt
 src/mcp_kicad_sch_api.egg-info/top_level.txt
+tests/test_mcp_server_integration.py
 tests/test_server.py
